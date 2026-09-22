@@ -14,7 +14,6 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        // Do NOT extend into title bar — that caused header/pane overlap.
         ContentFrame.Navigate(typeof(HomePage));
         _ = InitAsync();
     }
@@ -23,9 +22,10 @@ public sealed partial class MainWindow : Window
     {
         try { Status = await Task.Run(() => WsaProbe.Detect(Config)); }
         catch (Exception ex) { Status = new WsaStatus { Detail = ex.Message }; }
-        StatusText.Text = Status.Installed
-            ? $"WSA {Status.Version}" + (Status.Running ? " · 运行中" : " · 未运行") + "  ·  {Status.InstallDir}"
-            : "未检测到 WSA — 请到「更新安装」";
+        if (Status.Installed)
+            StatusText.Text = "WSA " + Status.Version + (Status.Running ? " · 运行中" : " · 未运行") + " · " + Status.InstallDir;
+        else
+            StatusText.Text = "未检测到 WSA — 请到「更新安装」";
     }
 
     async void RefreshBtn_Click(object sender, RoutedEventArgs e)
@@ -71,7 +71,7 @@ public static class Ui
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(16),
             Margin = new Thickness(0, 0, 0, 14),
-            MaxWidth = 720,
+            MaxWidth = 780,
             HorizontalAlignment = HorizontalAlignment.Left,
             Child = sp
         };
@@ -85,64 +85,47 @@ public static class Ui
         Margin = new Thickness(0, 2, 0, 2)
     };
 
-    public static Button Btn(string text, Action onClick)
+    /// <summary>Button that shows a spinning ProgressRing while running.</summary>
+    public static Button BusyBtn(string text, Func<Task> onClick)
     {
+        var ring = new ProgressRing { Width = 16, Height = 16, IsActive = false, Visibility = Visibility.Collapsed };
+        var label = new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center };
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        panel.Children.Add(ring);
+        panel.Children.Add(label);
         var b = new Button
         {
-            Content = text,
+            Content = panel,
             Margin = new Thickness(0, 6, 8, 0),
             Padding = new Thickness(14, 8, 14, 8),
-            MinWidth = 100,
+            MinWidth = 110,
             HorizontalAlignment = HorizontalAlignment.Left
         };
         b.Click += async (_, __) =>
         {
-            var old = b.Content as string;
-            try
-            {
-                b.IsEnabled = false;
-                b.Content = "…";
-                onClick();
-            }
+            if (!b.IsEnabled) return;
+            b.IsEnabled = false;
+            ring.IsActive = true;
+            ring.Visibility = Visibility.Visible;
+            label.Text = "请稍候…";
+            try { await onClick(); }
             catch (Exception ex) { ShowError(ex.Message); }
             finally
             {
-                await Task.Delay(150);
-                b.Content = old;
+                ring.IsActive = false;
+                ring.Visibility = Visibility.Collapsed;
+                label.Text = text;
                 b.IsEnabled = true;
             }
         };
         return b;
     }
 
-    public static Button BtnAsync(string text, Func<Task> onClick)
-    {
-        var b = new Button
-        {
-            Content = text,
-            Margin = new Thickness(0, 6, 8, 0),
-            Padding = new Thickness(14, 8, 14, 8),
-            MinWidth = 100,
-            HorizontalAlignment = HorizontalAlignment.Left
-        };
-        b.Click += async (_, __) =>
-        {
-            var old = b.Content as string;
-            try
-            {
-                b.IsEnabled = false;
-                b.Content = "请稍候…";
-                await onClick();
-            }
-            catch (Exception ex) { ShowError(ex.Message); }
-            finally
-            {
-                b.Content = old;
-                b.IsEnabled = true;
-            }
-        };
-        return b;
-    }
+    public static Button BusyBtn(string text, Action onClick) => BusyBtn(text, () => { onClick(); return Task.CompletedTask; });
+
+    public static Button Btn(string text, Action onClick) => BusyBtn(text, onClick);
+
+    public static Button Btn(string text, Func<Task> onClick) => BusyBtn(text, onClick);
 
     public static void ShowError(string msg) => _ = ShowAsync("提示", msg);
 
@@ -186,7 +169,7 @@ public static class Ui
         {
             Spacing = 4,
             Padding = new Thickness(16, 12, 16, 24),
-            MaxWidth = 760,
+            MaxWidth = 820,
             HorizontalAlignment = HorizontalAlignment.Left
         };
         foreach (var c in children) sp.Children.Add(c);
