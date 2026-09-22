@@ -22,22 +22,49 @@ $lines.Add('-nullable:disable')
 $lines.Add('-langversion:latest')
 $lines.Add('-out:"' + (Join-Path $dist 'WsaHub.exe') + '"')
 
+$wdcRef = $null
+$ncRef = $null
+$packs = 'C:\Program Files\dotnet\packs'
+if (Test-Path $packs) {
+  $wdcRef = Get-ChildItem (Join-Path $packs 'Microsoft.WindowsDesktop.App.Ref\*\ref\net8.0') -Directory -EA SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+  $ncRef = Get-ChildItem (Join-Path $packs 'Microsoft.NETCore.App.Ref\*\ref\net8.0') -Directory -EA SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+}
+Write-Host "wdcRef=$($wdcRef.FullName)"
+Write-Host "ncRef=$($ncRef.FullName)"
+
+$refDirs = @()
+if ($wdcRef) { $refDirs += $wdcRef.FullName }
+if ($ncRef) { $refDirs += $ncRef.FullName }
+if ($refDirs.Count -eq 0) {
+  # fallback: shared frameworks but exclude private assemblies
+  $refDirs = @($wdc, $nc)
+}
+
 $must = @(
   'WindowsBase.dll','PresentationCore.dll','PresentationFramework.dll','System.Xaml.dll',
   'System.Windows.Forms.dll','System.Drawing.Common.dll','System.Drawing.dll',
-  'UIAutomationProvider.dll','UIAutomationTypes.dll','System.Windows.Extensions.dll'
+  'UIAutomationProvider.dll','UIAutomationTypes.dll','System.Windows.Extensions.dll',
+  'System.Runtime.dll','System.Private.CoreLib.dll'
 )
 $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
 foreach ($name in $must) {
-  $p = Join-Path $wdc $name
-  if (Test-Path -LiteralPath $p) {
-    $lines.Add('-r:"' + $p + '"')
-    [void]$seen.Add($name)
+  if ($name -like 'System.Private*') { continue }
+  foreach ($dir in $refDirs) {
+    $p = Join-Path $dir $name
+    if (Test-Path -LiteralPath $p) {
+      $lines.Add('-r:"' + $p + '"')
+      [void]$seen.Add($name)
+      break
+    }
   }
 }
-foreach ($dir in @($wdc, $nc)) {
-  foreach ($f in (Get-ChildItem -LiteralPath $dir -Filter '*.dll')) {
+foreach ($dir in $refDirs) {
+  foreach ($f in (Get-ChildItem -LiteralPath $dir -Filter '*.dll' -EA SilentlyContinue)) {
     if ($seen.Contains($f.Name)) { continue }
+    if ($f.Name -like 'System.Private*' -or $f.Name -like 'Microsoft.Private*' -or $f.Name -eq 'mscorlib.dll' -and $refDirs.Count -gt 1) {
+      if ($f.Name -like 'System.Private*' -or $f.Name -like 'Microsoft.Private*') { continue }
+    }
+    if ($f.Name -like '*_cor3.dll' -or $f.Name -like 'PresentationNative*') { continue }
     try {
       $null = [System.Reflection.AssemblyName]::GetAssemblyName($f.FullName)
       $lines.Add('-r:"' + $f.FullName + '"')

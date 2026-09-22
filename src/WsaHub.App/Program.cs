@@ -16,20 +16,29 @@ public static class Program
     [STAThread]
     public static void Main()
     {
+        var startLog = Path.Combine(Path.GetTempPath(), "WsaHub-startup.log");
         try
         {
-            var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
-            app.Startup += (_, __) =>
+            File.WriteAllText(startLog, "start " + DateTime.Now.ToString("o") + Environment.NewLine);
+            var app = new Application { ShutdownMode = ShutdownMode.OnLastWindowClose };
+            File.AppendAllText(startLog, "app created" + Environment.NewLine);
+            app.DispatcherUnhandledException += (_, e) =>
             {
-                var win = new MainWindow();
-                app.MainWindow = win;
-                win.Show();
+                File.AppendAllText(startLog, "dispatcher-ex " + e.Exception + Environment.NewLine);
+                MessageBox.Show(e.Exception.ToString(), "WsaHub");
+                e.Handled = true;
             };
-            app.Run();
+            var win = new MainWindow();
+            File.AppendAllText(startLog, "window constructed" + Environment.NewLine);
+            app.MainWindow = win;
+            win.Show();
+            File.AppendAllText(startLog, "window shown" + Environment.NewLine);
+            app.Run(win);
+            File.AppendAllText(startLog, "run exited" + Environment.NewLine);
         }
         catch (Exception ex)
         {
-            try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "WsaHub-error.txt"), ex.ToString()); } catch { }
+            try { File.AppendAllText(startLog, "fatal " + ex + Environment.NewLine); } catch { }
             try { MessageBox.Show(ex.ToString(), "WsaHub fatal", MessageBoxButton.OK, MessageBoxImage.Error); } catch { }
         }
     }
