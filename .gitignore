@@ -1,0 +1,8 @@
+dist/
+obj/
+bin/
+packaging/msix-stage/
+*.user
+.vs/
+*.msix
+*.appx
