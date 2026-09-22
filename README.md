@@ -10,6 +10,18 @@
 - Backup, logon task, settings, logs
 - WinUI3 sources + MSIX packaging scripts
 
+## NuGet / WinUI3
+
+`dotnet restore` 在本机仍可能报 `path1`（NuGet MachineWide）。**可用 VS MSBuild 绕过**（已验证 restore + WinUI3 构建成功）：
+
+```powershell
+cd scripts
+.\build-winui3.ps1
+# 产物： src\WsaHub.WinUI3\bin\x64\Release\...\WsaHub.WinUI3.exe
+```
+
+WinForms 仍为免 NuGet 备用：`.\build-netfx.ps1` → `dist\WsaHub.exe`。
+
 ## Build (recommended — WinForms / .NET Framework 4.8, works today)
 ```powershell
 cd scripts
