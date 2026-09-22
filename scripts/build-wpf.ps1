@@ -14,44 +14,46 @@ $nc = (Get-ChildItem 'C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.*' 
 Write-Host "csc=$csc"
 Write-Host "wdc=$wdc"
 
-$rsp = Join-Path $dist 'WsaHub.rsp'
-$sb = New-Object System.Text.StringBuilder
-[void]$sb.AppendLine('-nologo')
-[void]$sb.AppendLine('-target:winexe')
-[void]$sb.AppendLine('-platform:anycpu')
-[void]$sb.AppendLine('-nullable:disable')
-[void]$sb.AppendLine('-langversion:latest')
-[void]$sb.AppendLine('-out:"' + (Join-Path $dist 'WsaHub.exe') + '"')
+$lines = New-Object System.Collections.Generic.List[string]
+$lines.Add('-nologo')
+$lines.Add('-target:winexe')
+$lines.Add('-platform:anycpu')
+$lines.Add('-nullable:disable')
+$lines.Add('-langversion:latest')
+$lines.Add('-out:"' + (Join-Path $dist 'WsaHub.exe') + '"')
 
-function Add-Ref([string]$p) {
-  if ($p -and (Test-Path $p)) {
-    [void]$script:sb.AppendLine('-r:"' + $p + '"')
-  }
-}
-
-foreach ($name in @(
+$must = @(
   'WindowsBase.dll','PresentationCore.dll','PresentationFramework.dll','System.Xaml.dll',
   'System.Windows.Forms.dll','System.Drawing.Common.dll','System.Drawing.dll',
   'UIAutomationProvider.dll','UIAutomationTypes.dll','System.Windows.Extensions.dll'
-)) {
-  Add-Ref (Join-Path $wdc $name)
+)
+$seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+foreach ($name in $must) {
+  $p = Join-Path $wdc $name
+  if (Test-Path -LiteralPath $p) {
+    $lines.Add('-r:"' + $p + '"')
+    [void]$seen.Add($name)
+  }
 }
-
 foreach ($dir in @($wdc, $nc)) {
-  Get-ChildItem (Join-Path $dir '*.dll') | ForEach-Object {
+  foreach ($f in (Get-ChildItem -LiteralPath $dir -Filter '*.dll')) {
+    if ($seen.Contains($f.Name)) { continue }
     try {
-      $null = [System.Reflection.AssemblyName]::GetAssemblyName($_.FullName)
-      Add-Ref $_.FullName
+      $null = [System.Reflection.AssemblyName]::GetAssemblyName($f.FullName)
+      $lines.Add('-r:"' + $f.FullName + '"')
+      [void]$seen.Add($f.Name)
     } catch { }
   }
 }
+$lines.Add('"' + (Join-Path $src 'WsaHub.Core\WsaHubCore.cs') + '"')
+$lines.Add('"' + (Join-Path $src 'WsaHub.App\Program.cs') + '"')
 
-[void]$sb.AppendLine('"' + (Join-Path $src 'WsaHub.Core\WsaHubCore.cs') + '"')
-[void]$sb.AppendLine('"' + (Join-Path $src 'WsaHub.App\Program.cs') + '"')
-Set-Content -Path $rsp -Value $sb.ToString() -Encoding UTF8
+$rsp = Join-Path $dist 'WsaHub.rsp'
+Set-Content -Path $rsp -Value $lines -Encoding UTF8
+Write-Host ('rsp lines=' + $lines.Count)
 
 Write-Host 'Compiling...'
-& 'C:\Program Files\dotnet\dotnet.exe' exec $csc "@$rsp"
+& 'C:\Program Files\dotnet\dotnet.exe' exec $csc ('@' + $rsp)
 if ($LASTEXITCODE -ne 0) { throw "csc failed $LASTEXITCODE" }
 
 @'
@@ -66,5 +68,4 @@ if ($LASTEXITCODE -ne 0) { throw "csc failed $LASTEXITCODE" }
 }
 '@ | Set-Content (Join-Path $dist 'WsaHub.runtimeconfig.json') -Encoding UTF8
 
-Write-Host ('OK ' + (Join-Path $dist 'WsaHub.exe'))
-Get-Item (Join-Path $dist 'WsaHub.exe') | Select-Object FullName, Length
+Get-Item (Join-Path $dist 'WsaHub.exe') | Format-List FullName,Length,LastWriteTime

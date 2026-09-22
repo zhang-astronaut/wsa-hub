@@ -16,14 +16,22 @@ public static class Program
     [STAThread]
     public static void Main()
     {
-        var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
-        app.Startup += (_, __) =>
+        try
         {
-            var win = new MainWindow();
-            app.MainWindow = win;
-            win.Show();
-        };
-        app.Run();
+            var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
+            app.Startup += (_, __) =>
+            {
+                var win = new MainWindow();
+                app.MainWindow = win;
+                win.Show();
+            };
+            app.Run();
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "WsaHub-error.txt"), ex.ToString()); } catch { }
+            try { MessageBox.Show(ex.ToString(), "WsaHub fatal", MessageBoxButton.OK, MessageBoxImage.Error); } catch { }
+        }
     }
 }
 
