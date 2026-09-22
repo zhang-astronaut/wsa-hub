@@ -3,21 +3,45 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="WsaHub">
-    <NavigationView x:Name="Nav" IsBackButtonVisible="Collapsed" PaneDisplayMode="Left" IsSettingsVisible="False" ItemInvoked="Nav_ItemInvoked">
-        <NavigationView.MenuItems>
-            <NavigationViewItem Content="首页" Tag="home" IsSelected="True" />
-            <NavigationViewItem Content="更新与安装" Tag="update" />
-            <NavigationViewItem Content="APK / ADB" Tag="adb" />
-            <NavigationViewItem Content="应用管理" Tag="apps" />
-            <NavigationViewItem Content="备份" Tag="backup" />
-            <NavigationViewItem Content="设置" Tag="settings" />
-            <NavigationViewItem Content="日志" Tag="logs" />
-        </NavigationView.MenuItems>
-        <Grid RowDefinitions="Auto,*">
-            <Border x:Name="StatusBar" Padding="16,10" Background="#2A2A30">
-                <TextBlock x:Name="StatusText" Text="正在检测 WSA…" Foreground="#D0D0D8" />
-            </Border>
-            <Frame x:Name="ContentFrame" Grid.Row="1" Margin="12" />
+    <Grid Background="#202024">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Title + status row (no ExtendsContentIntoTitleBar overlap) -->
+        <Grid x:Name="HeaderBar" Grid.Row="0" Padding="16,12" Background="#25252A" BorderBrush="#333338" BorderThickness="0,0,0,1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                <TextBlock Text="WsaHub" FontSize="18" FontWeight="SemiBold" Foreground="#F2F2F7" VerticalAlignment="Center" />
+                <TextBlock x:Name="StatusText" Text="正在检测 WSA…" Foreground="#A0A0A8" FontSize="12" VerticalAlignment="Center" TextWrapping="NoWrap" />
+            </StackPanel>
+            <Button Grid.Column="1" x:Name="RefreshBtn" Content="刷新状态" Click="RefreshBtn_Click" />
         </Grid>
-    </NavigationView>
+
+        <NavigationView
+            x:Name="Nav"
+            Grid.Row="1"
+            IsBackButtonVisible="Collapsed"
+            IsSettingsVisible="False"
+            IsPaneToggleButtonVisible="True"
+            PaneDisplayMode="Left"
+            OpenPaneLength="160"
+            ItemInvoked="Nav_ItemInvoked"
+            Background="#202024">
+            <NavigationView.MenuItems>
+                <NavigationViewItem Content="首页" Tag="home" IsSelected="True" />
+                <NavigationViewItem Content="更新安装" Tag="update" />
+                <NavigationViewItem Content="APK / ADB" Tag="adb" />
+                <NavigationViewItem Content="应用管理" Tag="apps" />
+                <NavigationViewItem Content="备份" Tag="backup" />
+                <NavigationViewItem Content="设置" Tag="settings" />
+                <NavigationViewItem Content="日志" Tag="logs" />
+            </NavigationView.MenuItems>
+            <Frame x:Name="ContentFrame" Margin="0" />
+        </NavigationView>
+    </Grid>
 </Window>
