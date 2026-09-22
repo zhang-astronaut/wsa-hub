@@ -400,13 +400,15 @@ public static class WsaInstaller
 {
     public static void StopWsa()
     {
-        foreach (var name in new[] { "WsaClient", "WsaService", "WsaSettings", "WsaProxy", "WSACrashUploader", "vmmemWSA" })
+        foreach (var name in new[] { "WsaClient", "WsaService", "WsaSettings", "WsaProxy", "WSACrashUploader", "vmmemWSA", "WsaSettingsBroker", "wslrelay" })
         {
             foreach (var p in Process.GetProcessesByName(name))
             {
                 try { p.Kill(true); } catch { }
             }
         }
+        // also kill by path under install dir if needed
+        Thread.Sleep(800);
     }
 
     public static string BackupUserdata(HubConfig cfg)
@@ -427,30 +429,77 @@ public static class WsaInstaller
     }
 
     /// <summary>Merge archive into install dir. Requires 7z. Does not register.</summary>
-    public static void ExtractAndMerge(string archive, HubConfig cfg, Action<string> log = null)
+    public static void ExtractAndMerge(string archive, HubConfig cfg, Action<string> log = null, IProgress<double> progress = null)
     {
         var seven = Find7z();
         if (seven == null) throw new InvalidOperationException("7z.exe not found (install 7-Zip/NanaZip)");
+        StopWsa();
+        // Release file locks: unregister package first when possible
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = "-NoProfile -NonInteractive -Command \"$e=Get-AppxPackage -Name MicrosoftCorporationII.WindowsSubsystemForAndroid -ErrorAction SilentlyContinue; if($e){Remove-AppxPackage -Package $e.PackageFullName -PreserveApplicationData -ErrorAction SilentlyContinue}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using (var p = Process.Start(psi)) { p?.WaitForExit(30000); }
+            log?.Invoke("已注销旧包（保留应用数据），释放文件锁…");
+        }
+        catch (Exception ex) { log?.Invoke("注销失败（继续尝试合并）: " + ex.Message); }
+        StopWsa();
+
         var stage = Path.Combine(cfg.WsaInstallDir, "_apply_stage");
         if (Directory.Exists(stage)) Directory.Delete(stage, true);
         Directory.CreateDirectory(stage);
         log?.Invoke("Extracting " + archive);
+        progress?.Report(0.05);
         var code = RunEx(seven, $"x \"{archive}\" -o\"{stage}\" -y", log);
         if (code != 0) throw new InvalidOperationException("7z extract failed: " + code);
+        progress?.Report(0.35);
         var pkg = Directory.GetDirectories(stage).FirstOrDefault() ?? throw new InvalidOperationException("empty archive");
         var exclude = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "_download", "_backup", "_gapps_stage", "_apply_stage", "platform-tools"
         };
-        foreach (var e in Directory.GetFileSystemEntries(pkg))
+        log?.Invoke("Merging to " + cfg.WsaInstallDir);
+        var files = Directory.GetFileSystemEntries(pkg).Where(e => !exclude.Contains(Path.GetFileName(e))).ToList();
+        int i = 0;
+        foreach (var e in files)
         {
-            var name = Path.GetFileName(e);
-            if (exclude.Contains(name)) continue;
-            var dest = Path.Combine(cfg.WsaInstallDir, name);
-            if (Directory.Exists(e)) CopyDir(e, dest);
-            else File.Copy(e, dest, true);
+            var dest = Path.Combine(cfg.WsaInstallDir, Path.GetFileName(e));
+            if (Directory.Exists(e)) CopyDirRetry(e, dest, log);
+            else CopyFileRetry(e, dest, log);
+            i++;
+            progress?.Report(0.35 + 0.5 * i / Math.Max(1, files.Count));
         }
         ApplyAppDlls(cfg.WsaInstallDir, log);
+        progress?.Report(0.9);
+    }
+
+    static void CopyFileRetry(string src, string dest, Action<string> log)
+    {
+        for (int t = 0; t < 8; t++)
+        {
+            try { File.Copy(src, dest, true); return; }
+            catch (IOException ex)
+            {
+                log?.Invoke("retry copy " + Path.GetFileName(dest) + " (" + (t + 1) + "): " + ex.Message);
+                StopWsa();
+                Thread.Sleep(400 * (t + 1));
+            }
+        }
+        File.Copy(src, dest, true); // last try
+    }
+
+    static void CopyDirRetry(string src, string dest, Action<string> log)
+    {
+        Directory.CreateDirectory(dest);
+        foreach (var f in Directory.GetFiles(src))
+            CopyFileRetry(f, Path.Combine(dest, Path.GetFileName(f)), log);
+        foreach (var d in Directory.GetDirectories(src))
+            CopyDirRetry(d, Path.Combine(dest, Path.GetFileName(d)), log);
     }
 
     public static void ApplyAppDlls(string installDir, Action<string> log = null)

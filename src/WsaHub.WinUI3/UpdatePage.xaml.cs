@@ -15,6 +15,14 @@ public sealed partial class UpdatePage : Page
     readonly TextBlock _detail = new() { TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(Color.FromArgb(255, 190, 190, 200)) };
     readonly TextBox _log = new() { Height = 110, IsReadOnly = true, AcceptsReturn = true, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"), HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBlock _info = new() { TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(Color.FromArgb(255, 200, 200, 208)) };
+    readonly ProgressBar _bar = new()
+    {
+        Minimum = 0,
+        Maximum = 100,
+        Height = 10,
+        Visibility = Visibility.Collapsed,
+        HorizontalAlignment = HorizontalAlignment.Stretch
+    };
 
     public UpdatePage()
     {
@@ -59,9 +67,12 @@ public sealed partial class UpdatePage : Page
         _assets.SetValue(Grid.RowProperty, 1);
         root.Children.Add(_assets);
 
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Padding = new Thickness(0, 8, 0, 0) };
-        actions.Children.Add(Ui.BusyBtn("下载并切换到选中版本", SwitchAsync));
-        actions.Children.Add(Ui.BusyBtn("仅下载选中包", DownloadOnlyAsync));
+        var actions = new StackPanel { Spacing = 8, Padding = new Thickness(0, 8, 0, 0) };
+        var btnRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        btnRow.Children.Add(Ui.BusyBtn("下载并切换到选中版本", SwitchAsync));
+        btnRow.Children.Add(Ui.BusyBtn("仅下载选中包", DownloadOnlyAsync));
+        actions.Children.Add(_bar);
+        actions.Children.Add(btnRow);
         actions.SetValue(Grid.RowProperty, 2);
         root.Children.Add(actions);
 
@@ -192,25 +203,42 @@ public sealed partial class UpdatePage : Page
                 AssetVersion = asset.WsaVersion
             };
             Append("下载 " + asset.Name + " …");
-            var path = await GithubWsabuilds.DownloadAsync(cfg, r);
+            var path = await GithubWsabuilds.DownloadAsync(cfg, r, new Progress<double>(p =>
+            {
+                _bar.IsIndeterminate = false;
+                _bar.Visibility = Visibility.Visible;
+                _bar.Value = p * 40; // 0-40 download
+            }));
             Append("已下载: " + path);
-            if (!apply) { Append("仅下载完成"); return; }
+            if (!apply) { _bar.Visibility = Visibility.Collapsed; Append("仅下载完成"); return; }
 
+            _bar.IsIndeterminate = false;
             Append("1/5 备份 userdata…");
             var bak = WsaInstaller.BackupUserdata(cfg);
             if (!string.IsNullOrEmpty(bak)) Append("备份: " + bak);
 
-            Append("2/5 停止 WSA…");
+            Append("2/5 停止 WSA 并释放文件锁…");
             WsaInstaller.StopWsa();
 
             Append("3/5 干净合并到 " + cfg.WsaInstallDir + " …");
-            WsaInstaller.ExtractAndMerge(path, cfg, Append);
+            WsaInstaller.ExtractAndMerge(path, cfg, Append, new Progress<double>(p =>
+            {
+                _bar.Visibility = Visibility.Visible;
+                _bar.Value = 40 + p * 50; // 40-90 merge
+            }));
 
             Append("4-5/5 注册 Appx（UAC）…");
+            _bar.IsIndeterminate = true;
+            _bar.Visibility = Visibility.Visible;
             Append("Register exit=" + WsaInstaller.RegisterElevated(cfg, Append));
+            _bar.Visibility = Visibility.Collapsed;
             await Ui.ShowAsync("完成", "已切换到 " + asset.WsaVersion + "（" + asset.Summary + "）");
         }
-        catch (Exception ex) { Append("错误: " + ex.Message); }
+        catch (Exception ex)
+        {
+            _bar.Visibility = Visibility.Collapsed;
+            Append("错误: " + ex.Message);
+        }
     }
 
     sealed class AssetRow
