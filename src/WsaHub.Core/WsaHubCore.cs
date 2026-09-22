@@ -455,27 +455,31 @@ public static class WsaInstaller
 
     public static void ApplyAppDlls(string installDir, Action<string> log = null)
     {
-        var vclibs = Path.Combine(installDir, "_download", "vclibs_extract", "Microsoft.VCLibs.140.00_x64.appx");
-        if (!Directory.Exists(vclibs)) return;
-        var hosts = new[] { "WsaClient", "WsaService", "WsaSettingsBroker", "WsaProxy", "WSACrashUploader", "amd64" };
-        foreach (var dll in Directory.GetFiles(vclibs, "*_APP.dll"))
+        var appx = Path.Combine(installDir, "Microsoft.VCLibs.140.00_x64.appx");
+        if (!File.Exists(appx)) return;
+        var tmp = Path.Combine(Path.GetTempPath(), "WsaHub-vclibs-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tmp);
+        try
         {
-            File.Copy(dll, Path.Combine(installDir, Path.GetFileName(dll)), true);
+            var zip = Path.Combine(tmp, "vclibs.zip");
+            File.Copy(appx, zip, true);
+            System.IO.Compression.ZipFile.ExtractToDirectory(zip, tmp);
+            var hosts = new[] { "", "WsaClient", "WsaService", "WsaSettingsBroker", "WsaProxy", "WSACrashUploader", "amd64" };
+            foreach (var dll in Directory.GetFiles(tmp, "*_APP.dll", SearchOption.AllDirectories))
+            {
+                foreach (var h in hosts)
+                {
+                    var destDir = string.IsNullOrEmpty(h) ? installDir : Path.Combine(installDir, h);
+                    if (!Directory.Exists(destDir)) continue;
+                    try { File.Copy(dll, Path.Combine(destDir, Path.GetFileName(dll)), true); } catch { }
+                }
+            }
+            log?.Invoke("APP dll helpers applied");
         }
-        foreach (var h in hosts)
+        finally
         {
-            var hp = Path.Combine(installDir, h);
-            if (!Directory.Exists(hp)) continue;
-            foreach (var dll in Directory.GetFiles(installDir, "*.dll"))
-            {
-                try { File.Copy(dll, Path.Combine(hp, Path.GetFileName(dll)), true); } catch { }
-            }
-            foreach (var dll in Directory.GetFiles(vclibs, "*_APP.dll"))
-            {
-                try { File.Copy(dll, Path.Combine(hp, Path.GetFileName(dll)), true); } catch { }
-            }
+            try { Directory.Delete(tmp, true); } catch { }
         }
-        log?.Invoke("APP dll helpers applied");
     }
 
     /// <summary>Elevated register + optional uninstall of previous package.</summary>

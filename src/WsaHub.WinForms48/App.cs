@@ -58,7 +58,13 @@ namespace WsaHub
             Controls.Add(foot);
             Controls.Add(_status);
 
-            Load += (s, e) => ThreadPool.QueueUserWorkItem(_ => BeginInvoke((Action)RefreshHome));
+            Load += (s, e) => ThreadPool.QueueUserWorkItem(_ => BeginInvoke((Action)(() =>
+            {
+                LoadConfig();
+                RefreshHome();
+                if (!string.IsNullOrEmpty(DetectVersion()))
+                    Append("可到「更新与安装」检查 WSABuilds 更新；配置已从 %APPDATA%\\WsaHub\\config.json 加载（若有）");
+            })));
         }
 
         void Append(string s)
@@ -155,21 +161,32 @@ namespace WsaHub
                     try
                     {
                         var json = HttpGet("https://api.github.com/repos/MustardChef/WSABuilds/releases?per_page=20");
-                        var tag = Regex.Match(json, "\"tag_name\"\\s*:\\s*\"([^\"]+)\"").Groups[1].Value;
-                        // prefer LTS
-                        var tags = Regex.Matches(json, "\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
-                        foreach (Match m in tags)
-                            if (m.Groups[1].Value.IndexOf("LTS", StringComparison.OrdinalIgnoreCase) >= 0) { tag = m.Groups[1].Value; break; }
-                        string asset = null, url = null;
-                        foreach (Match m in Regex.Matches(json, "\"name\"\\s*:\\s*\"(WSA_[^\"]+\\.7z)\""))
+                        // Split releases roughly by tag_name blocks; pick first LTS (or first) and use ONLY its assets.
+                        var blocks = Regex.Split(json, "\\{\\s*\"url\"\\s*:\\s*\"https://api\\.github\\.com/repos/");
+                        string tag = null, block = null;
+                        foreach (var b in blocks)
                         {
-                            var n = m.Groups[1].Value;
-                            if (Regex.IsMatch(n, _assetPattern) && n.IndexOf("canary", StringComparison.OrdinalIgnoreCase) < 0)
+                            var tm = Regex.Match(b, "\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
+                            if (!tm.Success) continue;
+                            if (tag == null) { tag = tm.Groups[1].Value; block = b; }
+                            if (tm.Groups[1].Value.IndexOf("LTS", StringComparison.OrdinalIgnoreCase) >= 0)
                             {
-                                asset = n;
-                                var um = Regex.Match(json, "\"browser_download_url\"\\s*:\\s*\"([^\"]*" + Regex.Escape(n) + ")\"");
-                                if (um.Success) url = um.Groups[1].Value.Replace("\\/", "/");
-                                break;
+                                tag = tm.Groups[1].Value; block = b; break;
+                            }
+                        }
+                        string asset = null, url = null;
+                        if (block != null)
+                        {
+                            foreach (Match m in Regex.Matches(block, "\"name\"\\s*:\\s*\"(WSA_[^\"]+\\.7z)\""))
+                            {
+                                var n = m.Groups[1].Value;
+                                if (Regex.IsMatch(n, _assetPattern) && n.IndexOf("canary", StringComparison.OrdinalIgnoreCase) < 0)
+                                {
+                                    asset = n;
+                                    var um = Regex.Match(block, "\"browser_download_url\"\\s*:\\s*\"([^\"]+" + Regex.Escape(n) + ")\"");
+                                    if (um.Success) url = um.Groups[1].Value.Replace("\\/", "/");
+                                    break;
+                                }
                             }
                         }
                         var inst = DetectVersion();
@@ -178,7 +195,7 @@ namespace WsaHub
                         {
                             info.Text = "远端: " + tag + "\n包: " + (asset ?? "(无匹配)") + "\n本地: " + (inst.Length == 0 ? "(未安装)" : inst) +
                                 "\n状态: " + ((av.Length > 0 && av == inst) ? "已是最新" : "可更新/可安装");
-                            _pendingAsset = asset; _pendingUrl = url; _pendingVer = av;
+                            _pendingAsset = asset; _pendingUrl = url; _pendingVer = av; _pendingTag = tag;
                         }));
                     }
                     catch (Exception ex) { BeginInvoke((Action)(() => info.Text = ex.Message)); }
@@ -192,7 +209,134 @@ namespace WsaHub
             return t;
         }
 
-        string _pendingAsset, _pendingUrl, _pendingVer;
+        string _pendingAsset, _pendingUrl, _pendingVer, _pendingTag;
+
+        string ConfigPath()
+        {
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WsaHub", "config.json");
+        }
+
+        void SaveConfig()
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(ConfigPath());
+                Directory.CreateDirectory(dir);
+                var sb = new StringBuilder();
+                sb.AppendLine("install=" + _installDir);
+                sb.AppendLine("download=" + _downloadDir);
+                sb.AppendLine("pattern=" + _assetPattern);
+                File.WriteAllText(ConfigPath(), sb.ToString());
+                Append("配置已保存: " + ConfigPath());
+            }
+            catch (Exception ex) { Append("保存配置失败: " + ex.Message); }
+        }
+
+        void LoadConfig()
+        {
+            try
+            {
+                if (!File.Exists(ConfigPath())) return;
+                foreach (var line in File.ReadAllLines(ConfigPath()))
+                {
+                    var i = line.IndexOf('=');
+                    if (i <= 0) continue;
+                    var k = line.Substring(0, i);
+                    var v = line.Substring(i + 1);
+                    if (k == "install") _installDir = v;
+                    if (k == "download") _downloadDir = v;
+                    if (k == "pattern") _assetPattern = v;
+                }
+            }
+            catch { }
+        }
+
+        void BackupUserdata()
+        {
+            try
+            {
+                var backup = Path.Combine(_installDir, "_backup");
+                Directory.CreateDirectory(backup);
+                var local = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Packages", "MicrosoftCorporationII.WindowsSubsystemForAndroid_8wekyb3d8bbwe", "LocalCache");
+                if (!Directory.Exists(local)) { Append("无 userdata LocalCache"); return; }
+                foreach (var f in Directory.GetFiles(local, "userdata*.vhdx"))
+                {
+                    var dest = Path.Combine(backup, Path.GetFileName(f) + "." + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+                    File.Copy(f, dest, true);
+                    Append("已备份 userdata -> " + dest);
+                }
+            }
+            catch (Exception ex) { Append("备份 userdata 失败: " + ex.Message); }
+        }
+
+        void ApplyAppDlls()
+        {
+            // Extract *_APP.dll from bundled Microsoft.VCLibs.140.00_x64.appx (zip) and copy beside host exes.
+            try
+            {
+                var appx = Path.Combine(_installDir, "Microsoft.VCLibs.140.00_x64.appx");
+                if (!File.Exists(appx)) { Append("无 VCLibs appx，跳过 *_APP.dll"); return; }
+                var ext = Path.Combine(Path.GetTempPath(), "WsaHub-vclibs-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(ext);
+                // .appx is a zip
+                var zip = Path.Combine(ext, "vclibs.zip");
+                File.Copy(appx, zip, true);
+                Run("powershell.exe", "-NoProfile -Command \"Expand-Archive -LiteralPath '" + zip + "' -DestinationPath '" + ext + "' -Force\"");
+                var appDlls = Directory.GetFiles(ext, "*_APP.dll", SearchOption.AllDirectories);
+                var hosts = new[] { "", "WsaClient", "WsaService", "WsaSettingsBroker", "WsaProxy", "WSACrashUploader", "amd64" };
+                int n = 0;
+                foreach (var dll in appDlls)
+                {
+                    foreach (var h in hosts)
+                    {
+                        var destDir = h.Length == 0 ? _installDir : Path.Combine(_installDir, h);
+                        if (!Directory.Exists(destDir)) continue;
+                        try { File.Copy(dll, Path.Combine(destDir, Path.GetFileName(dll)), true); n++; } catch { }
+                    }
+                }
+                Append("已应用 *_APP.dll x" + n);
+                try { Directory.Delete(ext, true); } catch { }
+            }
+            catch (Exception ex) { Append("ApplyAppDlls: " + ex.Message); }
+        }
+
+        void RegisterElevated()
+        {
+            var ps1 = Path.Combine(_installDir, "_register.ps1");
+            var inst = _installDir.Replace("'", "''");
+            var body =
+                "$ErrorActionPreference='Stop'\r\n" +
+                "Get-Process WsaClient,WsaService,WsaSettings,vmmemWSA -ErrorAction SilentlyContinue | Stop-Process -Force\r\n" +
+                "$ex = Get-AppxPackage -Name MicrosoftCorporationII.WindowsSubsystemForAndroid -ErrorAction SilentlyContinue\r\n" +
+                "if ($ex) { try { Remove-AppxPackage -Package $ex.PackageFullName -PreserveApplicationData } catch { try { Remove-AppxPackage -Package $ex.PackageFullName } catch {} } }\r\n" +
+                "Set-Location '" + inst + "'\r\n" +
+                "[xml]$x = Get-Content .\\AppxManifest.xml\r\n" +
+                "$arch = $x.Package.Identity.ProcessorArchitecture\r\n" +
+                "foreach ($d in $x.Package.Dependencies.PackageDependency) {\r\n" +
+                "  $dep = Get-AppxPackage -Name $d.Name -ErrorAction SilentlyContinue | ? { $_.Architecture -eq $arch } | sort Version | select -Last 1\r\n" +
+                "  if (-not $dep -or ([version]$dep.Version -lt [version]$d.MinVersion)) {\r\n" +
+                "    $a = Join-Path '" + inst + "' ($d.Name + '_' + $arch + '.appx')\r\n" +
+                "    if (Test-Path $a) { Add-AppxPackage -ForceApplicationShutdown -ForceUpdateFromAnyVersion -Path $a }\r\n" +
+                "  }\r\n" +
+                "}\r\n" +
+                "Add-AppxPackage -ForceApplicationShutdown -ForceUpdateFromAnyVersion -Register .\\AppxManifest.xml\r\n" +
+                "Write-Output REGISTER_OK\r\n";
+            File.WriteAllText(ps1, body);
+            Append("请求管理员注册 Appx...");
+            try
+            {
+                var p = Process.Start(new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + ps1 + "\"",
+                    Verb = "runas",
+                    UseShellExecute = true
+                });
+                if (p != null) { p.WaitForExit(180000); Append("注册脚本 exit=" + p.ExitCode); }
+            }
+            catch (Exception ex) { Append("提权注册失败: " + ex.Message); }
+        }
 
         string HttpGet(string url)
         {
@@ -228,13 +372,15 @@ namespace WsaHub
                     Append("已下载 " + total + " bytes -> " + dest);
                 }
                 var confirm = MessageBox.Show(this,
-                    "安装包已就绪：\n" + _pendingAsset + "\n版本 " + _pendingVer + "\n\n现在安装？\n(备份 userdata、解压合并、请求管理员注册)",
+                    "安装包已就绪：\n" + _pendingAsset + "\n版本 " + _pendingVer + "\nRelease " + (_pendingTag ?? "") + "\n\n安装流程：备份 userdata → 停止 WSA → 解压合并 → 补 *_APP.dll → 注册 Appx（UAC）\n继续？",
                     "WsaHub 确认安装", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
                 if (confirm != DialogResult.Yes) { Append("用户取消安装"); return; }
+
+                BackupUserdata();
                 Append("停止 WSA 进程...");
-                foreach (var name in new[] { "WsaClient", "WsaService", "WsaSettings", "vmmemWSA" })
+                foreach (var name in new[] { "WsaClient", "WsaService", "WsaSettings", "vmmemWSA", "WSACrashUploader" })
                     foreach (var pr in Process.GetProcessesByName(name)) { try { pr.Kill(); } catch { } }
-                // extract via 7z
+
                 var seven = Find7z();
                 if (seven == null) { Append("找不到 7z.exe，请安装 7-Zip/NanaZip"); return; }
                 var stage = Path.Combine(_installDir, "_apply_stage");
@@ -246,20 +392,9 @@ namespace WsaHub
                 if (pkg.Length == 0) { Append("解压结果为空"); return; }
                 Append("合并到 " + _installDir);
                 CopyDir(pkg[0], _installDir);
-                Append("请以管理员运行 " + Path.Combine(_installDir, "Install.ps1") + " 或 Run.bat 完成注册");
-                var open = MessageBox.Show(this, "文件已合并。\n现在以管理员打开 Install.ps1 注册？", "WsaHub", MessageBoxButtons.YesNo);
-                if (open == DialogResult.Yes)
-                {
-                    var inst = Path.Combine(_installDir, "Install.ps1");
-                    if (File.Exists(inst))
-                        Process.Start(new ProcessStartInfo
-                        {
-                            FileName = "powershell.exe",
-                            Arguments = "-ExecutionPolicy Bypass -File \"" + inst + "\"",
-                            Verb = "runas",
-                            UseShellExecute = true
-                        });
-                }
+                ApplyAppDlls();
+                RegisterElevated();
+                Append("安装流程结束（确认 Start Menu 中已有 Windows Subsystem for Android）");
                 BeginInvoke((Action)RefreshHome);
             }
             catch (Exception ex) { Append("错误: " + ex.Message); }
@@ -408,6 +543,7 @@ namespace WsaHub
                 _installDir = tbInst.Text.Trim();
                 _downloadDir = tbDl.Text.Trim();
                 _assetPattern = tbPat.Text.Trim();
+                SaveConfig();
                 Append("设置已更新");
             }));
             p.Controls.Add(Btn("备份 userdata", () =>
