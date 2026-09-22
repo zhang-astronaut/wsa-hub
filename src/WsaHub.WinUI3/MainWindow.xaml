@@ -17,7 +17,7 @@
             <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
                 <TextBlock Text="WsaHub" FontSize="18" FontWeight="SemiBold" Foreground="#F2F2F7" VerticalAlignment="Center" />
                 <TextBlock x:Name="StatusText" Text="正在检测 WSA…" Foreground="#A0A0A8" FontSize="12" VerticalAlignment="Center"
-                           TextTrimming="CharacterEllipsis" MaxWidth="720" />
+                           TextTrimming="CharacterEllipsis" />
             </StackPanel>
             <Button Grid.Column="1" Content="刷新状态" Click="RefreshBtn_Click" VerticalAlignment="Center" />
         </Grid>
@@ -29,20 +29,22 @@
             IsSettingsVisible="False"
             IsPaneToggleButtonVisible="True"
             PaneDisplayMode="Left"
-            OpenPaneLength="220"
+            OpenPaneLength="260"
             IsPaneOpen="True"
             ItemInvoked="Nav_ItemInvoked"
-            Background="#202024">
+            Background="#202024"
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Stretch">
             <NavigationView.MenuItems>
-                <NavigationViewItem Content="首页" Tag="home" IsSelected="True" />
-                <NavigationViewItem Content="更新 / 切换版本" Tag="update" />
-                <NavigationViewItem Content="APK / ADB" Tag="adb" />
-                <NavigationViewItem Content="应用管理" Tag="apps" />
-                <NavigationViewItem Content="备份" Tag="backup" />
-                <NavigationViewItem Content="设置" Tag="settings" />
-                <NavigationViewItem Content="日志" Tag="logs" />
+                <NavigationViewItem Content="首页" Tag="home" IsSelected="True" HorizontalAlignment="Stretch" />
+                <NavigationViewItem Content="更新 / 切换版本" Tag="update" HorizontalAlignment="Stretch" />
+                <NavigationViewItem Content="APK / ADB" Tag="adb" HorizontalAlignment="Stretch" />
+                <NavigationViewItem Content="应用管理" Tag="apps" HorizontalAlignment="Stretch" />
+                <NavigationViewItem Content="备份" Tag="backup" HorizontalAlignment="Stretch" />
+                <NavigationViewItem Content="设置" Tag="settings" HorizontalAlignment="Stretch" />
+                <NavigationViewItem Content="日志" Tag="logs" HorizontalAlignment="Stretch" />
             </NavigationView.MenuItems>
-            <Frame x:Name="ContentFrame" />
+            <Frame x:Name="ContentFrame" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
         </NavigationView>
     </Grid>
 </Window>
