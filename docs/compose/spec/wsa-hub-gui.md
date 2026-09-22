@@ -1,4 +1,4 @@
----
+﻿---
 feature: wsa-hub-gui
 status: delivered
 updated: 2026-09-22
@@ -8,7 +8,17 @@ commits:
 
 # WsaHub — WSA 管理 GUI（WinUI 3）
 
+
 ## Report
+
+**What was built** - WsaHub GUI (independent repo) for WSA: detect or first-install WSABuilds LTS (GApps-NoAmazon), confirm-before-install, ADB APK install/manage, backup, settings, logs. Host: WinForms48 (verified UI opens). Plus WinUI3 sources and unsigned MSIX (makeappx 10.0.28000).
+
+**Verification** - build-netfx.ps1 -> WsaHub.exe title "WsaHub"; makeappx -> WsaHub.msix OK. NuGet restore still fails path1 here so WinUI3 build is source-only on this PC.
+
+**Journey log**
+- net8 csc host binding broke (System.Private.CoreLib); WinForms48 + Roslyn + FX refs runs via mscoree.
+- makeappx already installed; no need to install Windows SDK.
+- NuGet MachineWide path1 persists.
 
 ## [S1] Problem
 
