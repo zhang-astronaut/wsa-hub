@@ -10,21 +10,15 @@
 - Backup, logon task, settings, logs
 - WinUI3 sources + MSIX packaging scripts
 
-## Build (WPF host, works today)
+## Build (recommended — WinForms / .NET Framework 4.8, works today)
 ```powershell
 cd scripts
-.\build-wpf.ps1
+.\build-netfx.ps1
 ..\dist\WsaHub.exe
 ```
+Roslyn + FX 4.8 引用，经 mscoree 启动，**无需 NuGet**。已验证窗口标题「WsaHub — WSA 管理中心」。
 
-## Build (WinUI3 when NuGet works)
 ```powershell
-cd scripts
-.\build-winui3.ps1
+.\build-msix.ps1   # 使用已安装的 Windows SDK makeappx（无需再装 SDK）
 ```
-
-## MSIX
-```powershell
-.\scripts\build-wpf.ps1
-.\scripts\build-msix.ps1
-```
+产物：`dist\WsaHub.exe` + `dist\WsaHub.msix`（未签名，侧载需信任证书）。

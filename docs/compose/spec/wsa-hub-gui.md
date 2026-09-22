@@ -1,6 +1,6 @@
 ---
 feature: wsa-hub-gui
-status: in-progress
+status: delivered
 updated: 2026-09-22
 branch: main
 commits: 
